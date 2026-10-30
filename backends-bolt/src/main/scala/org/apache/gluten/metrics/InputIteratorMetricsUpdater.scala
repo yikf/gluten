@@ -27,6 +27,7 @@ case class InputIteratorMetricsUpdater(
       val operatorMetrics = opMetrics.asInstanceOf[OperatorMetrics]
       metrics("cpuCount") += operatorMetrics.cpuCount
       metrics("wallNanos") += operatorMetrics.wallNanos
+      metrics("cpuNanos") += operatorMetrics.cpuNanos
       if (!forBroadcast) {
         if (operatorMetrics.outputRows == 0 && operatorMetrics.outputVectors == 0) {
           metrics("numOutputRows") += operatorMetrics.inputRows

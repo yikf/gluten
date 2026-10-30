@@ -75,7 +75,9 @@ class BoltMetricsApi extends MetricsApi with Logging {
 
     Map(
       "cpuCount" -> SQLMetrics.createMetric(sparkContext, "cpu wall time count"),
-      "wallNanos" -> wallNanosMetric
+      "wallNanos" -> wallNanosMetric,
+      // Includes CPU spent synchronously pulling upstream input on the operator thread.
+      "cpuNanos" -> SQLMetrics.createNanoTimingMetric(sparkContext, "cpu time")
     ) ++ outputMetrics
   }
 
