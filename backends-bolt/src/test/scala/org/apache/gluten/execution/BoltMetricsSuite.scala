@@ -24,7 +24,7 @@ import org.apache.spark.scheduler.{SparkListener, SparkListenerStageCompleted}
 import org.apache.spark.sql.GlutenTestUtils
 import org.apache.spark.sql.execution.{ColumnarInputAdapter, CommandResultExec, InputIteratorTransformer}
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, BroadcastQueryStageExec}
-import org.apache.spark.sql.execution.exchange.BroadcastExchangeLike
+import org.apache.spark.sql.execution.exchange.{BroadcastExchangeLike, ShuffleExchangeLike}
 import org.apache.spark.sql.internal.SQLConf
 
 class BoltMetricsSuite extends BoltWholeStageTransformerSuite with AdaptiveSparkPlanHelper {
@@ -229,6 +229,46 @@ class BoltMetricsSuite extends BoltWholeStageTransformerSuite with AdaptiveSpark
     assert(inputRecords == (partTableRecords + itemTableRecords))
   }
 
+  test("CPU metrics for input iterator of fallback scan") {
+    withSQLConf(
+      SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
+      GlutenConfig.COLUMNAR_FILESCAN_ENABLED.key -> "false",
+      GlutenConfig.COLUMNAR_BATCHSCAN_ENABLED.key -> "false"
+    ) {
+      // Keep the projection native so that it consumes Spark scan output through a value stream.
+      runQueryAndCompare("SELECT c1 + 1 FROM metrics_t1") {
+        df =>
+          val inputIterators = collect(df.queryExecution.executedPlan) {
+            case input: InputIteratorTransformer => input
+          }
+          assert(inputIterators.size == 1, df.queryExecution.executedPlan)
+          val metrics = inputIterators.head.metrics
+          assert(metrics("numOutputRows").value == 100)
+          assert(metrics("cpuCount").value > 0)
+          assert(metrics("cpuNanos").value > 0)
+      }
+    }
+  }
+
+  test("CPU metrics for input iterator of shuffle exchange") {
+    withSQLConf(
+      SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
+      SQLConf.SHUFFLE_PARTITIONS.key -> "2") {
+      runQueryAndCompare("SELECT c2, sum(c1) FROM metrics_t1 GROUP BY c2") {
+        df =>
+          val inputIterators = collect(df.queryExecution.executedPlan) {
+            case input @ InputIteratorTransformer(ColumnarInputAdapter(_: ShuffleExchangeLike)) =>
+              input
+          }
+          assert(inputIterators.size == 1, df.queryExecution.executedPlan)
+          val metrics = inputIterators.head.metrics
+          assert(metrics("numOutputRows").value > 0)
+          assert(metrics("cpuCount").value > 0)
+          assert(metrics("cpuNanos").value > 0)
+      }
+    }
+  }
+
   test("Metrics for input iterator of broadcast exchange") {
     createTPCHNotNullTables()
     val partTableRecords = spark.sql("select * from part").count()
@@ -259,6 +299,8 @@ class BoltMetricsSuite extends BoltWholeStageTransformerSuite with AdaptiveSpark
               assert(inputIterator.isDefined)
               val metrics = inputIterator.get.metrics
               assert(metrics("numOutputRows").value == partTableRecords)
+              // Zero CPU time is valid for broadcast input; output rows must still be preserved.
+              assert(metrics("cpuNanos").value >= 0)
           }
         }
     }
