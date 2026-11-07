@@ -63,6 +63,7 @@ object MetricsUtil extends Logging {
     metrics.outputBytes = value(node, "outputBytes")
     metrics.cpuCount = value(node, "cpuCount")
     metrics.wallNanos = value(node, "wallNanos")
+    metrics.cpuNanos = value(node, "cpuNanos")
     metrics.peakMemoryBytes = value(node, "peakMemoryBytes")
     metrics.numMemoryAllocations = value(node, "numMemoryAllocations")
     metrics.spilledInputBytes = value(node, "spilledInputBytes")
@@ -225,6 +226,7 @@ object MetricsUtil extends Logging {
 
     var cpuCount: Long = 0
     var wallNanos: Long = 0
+    var cpuNanos: Long = 0
     var peakMemoryBytes: Long = 0
     var numMemoryAllocations: Long = 0
     var spilledInputBytes: Long = 0
@@ -263,6 +265,7 @@ object MetricsUtil extends Logging {
       val metrics = metricsIterator.next()
       cpuCount += metrics.cpuCount
       wallNanos += metrics.wallNanos
+      cpuNanos += metrics.cpuNanos
       peakMemoryBytes = peakMemoryBytes.max(metrics.peakMemoryBytes)
       numMemoryAllocations += metrics.numMemoryAllocations
       spilledInputBytes += metrics.spilledInputBytes
@@ -297,7 +300,7 @@ object MetricsUtil extends Logging {
       loadLazyVectorTime += metrics.loadLazyVectorTime
     }
 
-    new OperatorMetrics(
+    val aggregated = new OperatorMetrics(
       inputRows,
       inputVectors,
       inputBytes,
@@ -343,6 +346,8 @@ object MetricsUtil extends Logging {
       numWrittenFiles,
       loadLazyVectorTime
     )
+    aggregated.cpuNanos = cpuNanos
+    aggregated
   }
 
   // FIXME: Metrics updating code is too magical to maintain. Tree-walking algorithm should be made
